@@ -3,6 +3,8 @@
 ## Preserve Python ADK
 The source project uses Google ADK, not OpenAI Agents SDK or Vercel AI SDK. The frontend is Next.js on Vercel; orchestration remains Python. Adding a second orchestration SDK would duplicate ownership without helping the current use case.
 
+The side-panel chat also runs through a dedicated Google ADK `LlmAgent` in the Python service. The Next.js chat route forwards a bounded conversation, the current KES profile, and (when available) the latest plan through the existing server-side token boundary. Requests use ephemeral ADK sessions and do not persist chat history.
+
 ## Sequential orchestration
 Budget output is injected into the savings prompt. Budget and savings outputs are injected into the debt prompt. Sequential execution is appropriate because later steps depend on earlier results. Independent parallel execution would break those dependencies.
 
@@ -21,3 +23,4 @@ Current tests cover validation, demo arithmetic, authentication, and agent depen
 
 ## SDK compatibility
 ADK 2.13 supports this implementation but deprecates SequentialAgent in favor of Workflow. The dependency lock preserves the tested version. Migrate with behavioral tests in a future change; the original orchestration is retained for this adaptation.
+

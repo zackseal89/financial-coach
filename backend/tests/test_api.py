@@ -10,13 +10,13 @@ class CoachTests(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
         self.client = TestClient(app)
-        self.profile = {"monthly_income":4800,"dependants":0,"manual_expenses":{"Housing":1400,"Food":480},"debts":[]}
+        self.profile = {"monthly_income":85000,"dependants":0,"manual_expenses":{"Housing":25000,"Food":18000},"debts":[]}
     def test_demo_calculates_without_ai_forecasts(self):
         response = self.client.post("/analyze", json=self.profile)
         self.assertEqual(response.status_code,200)
         data=response.json()
         self.assertEqual(data["mode"],"demo")
-        self.assertEqual(data["summary"]["remaining"],2920)
+        self.assertEqual(data["summary"]["remaining"],42000)
         self.assertEqual(data["trace"],[])
         self.assertNotIn("payoff_plans",data["results"]["debt_reduction"])
     def test_negative_income_rejected(self):
@@ -34,7 +34,24 @@ class CoachTests(unittest.TestCase):
             self.assertEqual(self.client.post("/analyze",json=self.profile).status_code,503)
     def test_deficit_and_zero_income(self):
         self.profile["monthly_income"]=0
-        self.assertEqual(self.client.post("/analyze",json=self.profile).json()["summary"]["remaining"],-1880)
+        self.assertEqual(self.client.post("/analyze",json=self.profile).json()["summary"]["remaining"],-43000)
+    def test_demo_chat_discloses_that_ai_is_not_connected(self):
+        response = self.client.post("/chat", json={"message":"How much is left?","profile":self.profile})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["mode"], "demo")
+        self.assertIn("AI chat is not connected", data["reply"])
+        self.assertIn("KES 42,000", data["reply"])
+        self.assertEqual(data["trace"], [])
+    def test_chat_rejects_oversized_history(self):
+        body = {"message":"Help","profile":self.profile,"history":[{"role":"user","content":"Hi"}] * 11}
+        self.assertEqual(self.client.post("/chat", json=body).status_code, 422)
+    def test_chat_requires_token_when_configured(self):
+        body = {"message":"Help","profile":self.profile}
+        with patch.dict(os.environ,{"COACH_API_TOKEN":"test-only-token"}):
+            self.assertEqual(self.client.post("/chat",json=body).status_code,401)
+            response = self.client.post("/chat",json=body,headers={"X-Coach-Token":"test-only-token"})
+            self.assertEqual(response.status_code,200)
     def test_agent_dependency_order(self):
         from agents import FinanceAdvisorSystem
         system=FinanceAdvisorSystem()
@@ -43,3 +60,4 @@ class CoachTests(unittest.TestCase):
         self.assertIn("{savings_strategy}",system.debt_reduction_agent.instruction)
 if __name__=="__main__":
     unittest.main()
+

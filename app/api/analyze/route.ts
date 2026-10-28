@@ -1,3 +1,5 @@
+import { getBackendAuthHeaders } from "../_lib/backend-auth";
+
 export const maxDuration = 240;
 export async function POST(request: Request) {
   try {
@@ -10,7 +12,7 @@ export async function POST(request: Request) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: "Bearer " + (process.env.COACH_API_TOKEN || ""),
+          ...(await getBackendAuthHeaders()),
         },
         body,
         signal: AbortSignal.timeout(190000),
@@ -28,3 +30,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

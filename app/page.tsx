@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 type Result = {
   mode: string;
   summary: {
@@ -12,27 +12,34 @@ type Result = {
   results: Record<string, unknown>;
 };
 const initial = {
-  Housing: 1400,
-  Food: 480,
-  Transport: 180,
-  Utilities: 160,
-  Lifestyle: 260,
+  Housing: 25000,
+  Food: 18000,
+  "Matatu & local transport": 8000,
+  Utilities: 6500,
+  Lifestyle: 10000,
+  "Airtime & mobile money": 4500,
 };
 const money = (v: number) =>
-  new Intl.NumberFormat("en-US", {
+  new Intl.NumberFormat("en-KE", {
     style: "currency",
-    currency: "USD",
+    currency: "KES",
     maximumFractionDigits: 0,
   }).format(v);
-function Detail({ value }: { value: unknown }) {
+type ChatMessage = { role: "user" | "assistant"; content: string; mode?: string };
+function Detail({ value, label = "" }: { value: unknown; label?: string }) {
   if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    if (/percent|percentage|rate/i.test(label)) return <span>{value}%</span>;
+    if (/months|dependants/i.test(label)) return <span>{value}</span>;
+    return <span>{money(value)}</span>;
+  }
   if (typeof value !== "object") return <span>{String(value)}</span>;
   if (Array.isArray(value))
     return (
       <div className="details">
         {value.map((v, i) => (
           <div className="detail" key={i}>
-            <Detail value={v} />
+            <Detail value={v} label={label} />
           </div>
         ))}
       </div>
@@ -43,7 +50,7 @@ function Detail({ value }: { value: unknown }) {
         <div key={k}>
           <dt>{k.replaceAll("_", " ")}</dt>
           <dd>
-            <Detail value={v} />
+            <Detail value={v} label={k} />
           </dd>
         </div>
       ))}
@@ -51,7 +58,7 @@ function Detail({ value }: { value: unknown }) {
   );
 }
 export default function Home() {
-  const [income, setIncome] = useState(4800),
+  const [income, setIncome] = useState(85000),
     [dependants, setDependants] = useState(0);
   const [expenses, setExpenses] = useState<Record<string, number>>(initial);
   const [debts, setDebts] = useState<
@@ -66,7 +73,61 @@ export default function Home() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [tab, setTab] = useState("budget_analysis");
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatText, setChatText] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const [chatMode, setChatMode] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const total = Object.values(expenses).reduce((a, b) => a + b, 0);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chatMessages, chatBusy]);
+  useEffect(() => {
+    if (!chatOpen) {
+      previousFocusRef.current?.focus();
+      return;
+    }
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    chatInputRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setChatOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [chatOpen]);
+  async function sendChat(text = chatText) {
+    const question = text.trim();
+    if (!question || chatBusy) return;
+    const nextMessages: ChatMessage[] = [...chatMessages, { role: "user", content: question }];
+    setChatMessages(nextMessages);
+    setChatText("");
+    setChatBusy(true);
+    setChatError("");
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: question,
+          history: chatMessages.slice(-10).map(({ role, content }) => ({ role, content })),
+          profile: { monthly_income: income, dependants, manual_expenses: expenses, debts },
+          analysis_context: result ? JSON.stringify(result.results).slice(0, 12000) : "",
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "The coach could not reply.");
+      setChatMode(data.mode || "");
+      setChatMessages([...nextMessages, { role: "assistant", content: data.reply, mode: data.mode }]);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "The coach could not reply.");
+    } finally {
+      setChatBusy(false);
+    }
+  }
   async function analyze(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -113,6 +174,9 @@ export default function Home() {
         <a className="nav" href="#analysis">
           ◎ &nbsp; Coaching plan
         </a>
+        <button className="nav chat-nav" onClick={() => setChatOpen(true)} aria-expanded={chatOpen}>
+          ✳ &nbsp; Ask your coach
+        </button>
         <div className="aside-bottom">
           <span className="small-dot" /> A little clarity. A lot of possibility.
           <p>Personal finance, with a plan.</p>
@@ -121,7 +185,12 @@ export default function Home() {
       <main id="overview">
         <header>
           <span>YOUR MONEY, IN PERSPECTIVE</span>
-          <span className="pill">◌ Personal workspace</span>
+          <div className="header-actions">
+            <span className="pill">◌ Kenya · Personal workspace</span>
+            <button className="chat-trigger" onClick={() => setChatOpen(true)} aria-expanded={chatOpen}>
+              ✳ <span>Ask your coach</span>
+            </button>
+          </div>
         </header>
         <section className="intro">
           <div>
@@ -185,7 +254,7 @@ export default function Home() {
                 <p className="eyebrow">THE STARTING POINT</p>
                 <h2>Your monthly picture</h2>
               </div>
-              <span className="subtle">USD / month</span>
+              <span className="subtle">KES / month</span>
             </div>
             <div className="two">
               <label>
@@ -216,13 +285,13 @@ export default function Home() {
             {Object.entries(expenses).map(([name, value], i) => (
               <div className="expense" key={name}>
                 <label htmlFor={name}>
-                  <span className={"category c" + i}>
-                    {["⌂", "◡", "↗", "ϟ", "✧"][i]}
+                  <span className={"category c" + (i % 5)}>
+                    {["⌂", "◡", "↗", "ϟ", "✧"][i % 5]}
                   </span>
                   {name}
                 </label>
                 <div>
-                  <span>$</span>
+                  <span>KSh</span>
                   <input
                     id={name}
                     aria-label={name + " monthly expense"}
@@ -249,10 +318,10 @@ export default function Home() {
                   setDebts([
                     ...debts,
                     {
-                      name: "Credit card",
-                      amount: 1000,
+                      name: "Loan",
+                      amount: 15000,
                       interest_rate: 18,
-                      min_payment: 50,
+                      min_payment: 1500,
                     },
                   ])
                 }
@@ -320,7 +389,8 @@ export default function Home() {
             </button>
             <p className="privacy">
               Live mode sends these inputs to Google Vertex AI. This prototype
-              does not save your financial profile.
+              does not save your financial profile. Sample figures are synthetic;
+              edit them to match your month.
             </p>
             {error && (
               <p role="alert" className="error">
@@ -391,7 +461,7 @@ export default function Home() {
               <span className="pill">
                 {result.mode === "demo"
                   ? "Demo · no AI calls"
-                  : "Live · Google ADK"}
+                        : "Live · Google ADK"}
               </span>
             )}
           </div>
@@ -442,6 +512,55 @@ export default function Home() {
           </span>
         </footer>
       </main>
+      {chatOpen && (
+        <>
+          <button className="chat-backdrop" aria-label="Close money coach chat" onClick={() => setChatOpen(false)} />
+          <section className="chat-panel" role="dialog" aria-modal="true" aria-labelledby="chat-title" onKeyDown={(event) => {
+            if (event.key !== "Tab") return;
+            const focusable = event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), textarea, input, [tabindex]:not([tabindex='-1'])");
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+          }}>
+            <div className="chat-header">
+              <div className="chat-avatar" aria-hidden="true">✳</div>
+              <div>
+                <h2 id="chat-title">Your money coach</h2>
+                <p>{chatMode === "live" ? "Google ADK · Vertex AI" : chatMode === "demo" ? "Demo mode · AI not connected" : "Kenya · KES"}</p>
+              </div>
+              <button className="chat-close" onClick={() => setChatOpen(false)} aria-label="Close chat">×</button>
+            </div>
+            <div className="chat-transcript" aria-live="polite" aria-relevant="additions text">
+              {chatMessages.length === 0 && (
+                <div className="chat-welcome">
+                  <span className="eyebrow">A CLEARER NEXT STEP</span>
+                  <p>Ask about your budget, savings, or a debt strategy. Your current KES figures are included for context.</p>
+                  <button onClick={() => void sendChat("How much room do I have after my monthly expenses?")}>How much is left after expenses? <span>↗</span></button>
+                  <button onClick={() => void sendChat("How could I make a plan for my debt repayments?")}>Help me plan debt repayments <span>↗</span></button>
+                </div>
+              )}
+              {chatMessages.map((message, index) => (
+                <div className={`chat-message ${message.role}`} key={`${index}-${message.role}`}>
+                  <span>{message.role === "assistant" ? "Coach" : "You"}{message.mode === "demo" ? " · Demo" : ""}</span>
+                  <p>{message.content}</p>
+                </div>
+              ))}
+              {chatBusy && <p className="chat-thinking" role="status">Your coach is thinking…</p>}
+              {chatError && <p className="error" role="alert">{chatError}</p>}
+              <div ref={chatEndRef} />
+            </div>
+            <form className="chat-compose" onSubmit={(event) => { event.preventDefault(); void sendChat(); }}>
+              <label className="sr-only" htmlFor="chat-input">Message your money coach</label>
+              <textarea ref={chatInputRef} id="chat-input" rows={2} maxLength={1200} placeholder="Ask about your monthly plan…" value={chatText} onChange={(event) => setChatText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendChat(); } }} />
+              <button disabled={!chatText.trim() || chatBusy} aria-label="Send message">↑</button>
+              <small>Never share PINs or account numbers. Guidance is educational.</small>
+            </form>
+          </section>
+        </>
+      )}
+      <button className="chat-fab" onClick={() => setChatOpen(true)} aria-expanded={chatOpen} aria-label="Open money coach chat">✳ <span>Ask your coach</span></button>
     </div>
   );
 }
+

@@ -1,13 +1,14 @@
 import "./globals.css";
 export const metadata = {
-  title: "Steady — Your financial coach",
+  title: "Steady — Your Kenyan money coach",
   description:
-    "Make room for what matters. A personal finance workspace powered by Google ADK.",
+    "A Kenyan personal finance workspace in KES, with coaching from a Google ADK multi-agent system.",
 };
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en-KE">
       <body>{children}</body>
     </html>
   );
 }
+

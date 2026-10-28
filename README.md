@@ -1,6 +1,6 @@
 # Steady · Financial Coach
 
-A Next.js personal-finance workspace backed by a Python Google ADK multi-agent system. Adapted from [Shubhamsaboo's AI Financial Coach](https://github.com/Shubhamsaboo/awesome-llm-apps/tree/main/advanced_ai_agents/multi_agent_apps/ai_financial_coach_agent).
+A Kenya-localized Next.js personal-finance workspace backed by a Python Google ADK multi-agent system. Amounts are in Kenyan shillings (KES), and the example figures are synthetic test data rather than local spending benchmarks. Adapted from [Shubhamsaboo's AI Financial Coach](https://github.com/Shubhamsaboo/awesome-llm-apps/tree/main/advanced_ai_agents/multi_agent_apps/ai_financial_coach_agent).
 
 **Status:** runnable local prototype. Demo mode performs arithmetic without model calls. Live mode uses Gemini through Vertex AI. Cloud deployment and live model access must be verified separately.
 
@@ -8,16 +8,19 @@ A Next.js personal-finance workspace backed by a Python Google ADK multi-agent s
 
 ```mermaid
 flowchart LR
-  UI[Next.js dashboard / Vercel] --> API[Next.js server route]
+  UI[Next.js dashboard / Vercel] --> API[Next.js server routes]
   API --> PY[FastAPI / Cloud Run]
   PY --> ADK[Google ADK SequentialAgent]
   ADK --> B[Budget analysis]
   B --> S[Savings strategy]
   S --> D[Debt reduction]
   B & S & D --> V[Gemini / Vertex AI]
+  UI --> CHAT[Side-panel assistant]
+  CHAT --> ADKCHAT[Google ADK chat agent]
+  ADKCHAT --> V
 ```
 
-The original three agent roles, prompts, and Pydantic output schemas are retained in `backend/agents.py`. This adaptation replaces Streamlit with React, introduces a validated HTTP boundary, upgrades ADK with locked dependencies, awaits session APIs, uses unique request sessions, explicitly injects prior agent outputs, and validates final structured results. It removes silent fabricated fallback forecasts. See [architecture decisions](docs/architecture.md).
+The original three agent roles, prompts, and Pydantic output schemas are retained in `backend/agents.py`. A separate Google ADK chat agent powers the contextual side panel. This adaptation replaces Streamlit with React, introduces validated HTTP boundaries, upgrades ADK with locked dependencies, awaits session APIs, uses unique request sessions, explicitly injects prior agent outputs, and validates final structured results. It removes silent fabricated fallback forecasts. See [architecture decisions](docs/architecture.md).
 
 ## Local setup
 
@@ -38,7 +41,7 @@ In a second terminal at the repository root:
 npm run dev
 ```
 
-Open http://127.0.0.1:3001. Enter income, expenses, and optional debts, then select **Build my coaching plan**. Results explicitly identify demo mode.
+Open http://127.0.0.1:3001. Enter monthly income, expenses, and optional debts in KES, then select **Build my coaching plan**. Open **Ask your coach** to chat using the current numbers. Demo mode clearly labels that the AI chat needs Vertex AI live mode; it never pretends a demo reply came from a model.
 
 ## Live Vertex AI test
 
@@ -69,7 +72,7 @@ See [deployment guide](docs/deployment.md) for Vercel and Cloud Run setup. The i
 
 ## Scope and portfolio evidence
 
-Implemented: responsive input dashboard, debt entry, three result panels, structured ADK orchestration, session isolation, server-side cloud configuration, request validation, explicit failures, execution timing, locked dependencies, CI, and deployment documentation.
+Implemented: Kenya-localized KES dashboard, responsive chat drawer, debt entry, three result panels, sequential ADK orchestration plus a separate contextual chat agent, session isolation, server-side cloud configuration, request validation, explicit failures, execution timing, locked dependencies, CI, and deployment documentation.
 
 Still to build: CSV import in the new UI, persistent authenticated user accounts, durable runs, streaming progress, model-quality evaluation fixtures, deterministic debt amortization, and production rate limits. This is not a production financial advisory system. AI-generated payoff figures require independent verification.
 
@@ -78,3 +81,4 @@ Live mode sends financial inputs to Google. The application does not persist pro
 ## Attribution
 
 The original source is preserved in `upstream/ai_financial_coach_agent.py` for review and attribution; it is not imported by the application. Original Apache-2.0 license is retained in LICENSE. The Next.js interface, API adaptation, tests, and deployment structure are additions in this repository.
+
