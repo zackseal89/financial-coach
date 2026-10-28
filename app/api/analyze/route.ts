@@ -1,11 +1,22 @@
 import { getBackendAuthHeaders } from "../_lib/backend-auth";
+import { demoAnalysis } from "../_lib/demo";
 
 export const maxDuration = 240;
+
 export async function POST(request: Request) {
   try {
     const body = await request.text();
     if (body.length > 64000)
       return Response.json({ detail: "Request too large" }, { status: 413 });
+
+    if (process.env.VERCEL === "1" && !process.env.BACKEND_URL) {
+      try {
+        return Response.json(demoAnalysis(JSON.parse(body)));
+      } catch {
+        return Response.json({ detail: "Check your financial inputs." }, { status: 400 });
+      }
+    }
+
     const upstream = await fetch(
       (process.env.BACKEND_URL || "http://127.0.0.1:8080") + "/analyze",
       {
@@ -30,4 +41,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

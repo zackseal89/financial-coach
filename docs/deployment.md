@@ -1,26 +1,50 @@
 # Deployment guide
 
 ## Google Cloud
-Project: `oreos-509708`. Region example: `us-central1`; model location: `global`.
-Confirm billing credits and model availability in the project before live testing.
 
-Enable Cloud Run, Artifact Registry, Cloud Build, and Vertex AI APIs. Create a dedicated runtime service account and grant only Vertex AI User. Deploy the backend directory using its Dockerfile:
+Project: `operating-ethos-513011-c0`. Cloud Run region: `us-central1`; Vertex AI model location: `global`.
+
+Enable Cloud Run, Artifact Registry, Cloud Build, Vertex AI, Secret Manager, IAM, IAM Credentials, and Security Token Service APIs. Use separate service accounts:
+
+- `financial-coach-runtime`: Vertex AI User and access to the app-token secret.
+- `financial-coach-builder`: Cloud Run Builder.
+- `financial-coach-invoker`: Cloud Run Invoker on this service; only the Vercel Preview workload can mint ID tokens for it.
+
+Create the `financial-coach-api-token` secret in Secret Manager and grant the runtime identity `roles/secretmanager.secretAccessor`. Do not pass token values as command arguments or commit them. Deploy the backend from `backend/`:
 
 ```powershell
-gcloud run deploy financial-coach-api --source backend --project oreos-509708 --region us-central1 --service-account financial-coach-runtime@oreos-509708.iam.gserviceaccount.com --no-allow-unauthenticated --min-instances 0 --max-instances 1 --concurrency 4 --timeout 240 --memory 1Gi --set-env-vars COACH_MODE=live,GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=oreos-509708,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=gemini-2.5-flash
+gcloud run deploy financial-coach-api --source backend --project operating-ethos-513011-c0 --region us-central1 --service-account financial-coach-runtime@operating-ethos-513011-c0.iam.gserviceaccount.com --build-service-account projects/operating-ethos-513011-c0/serviceAccounts/financial-coach-builder@operating-ethos-513011-c0.iam.gserviceaccount.com --no-allow-unauthenticated --min-instances 0 --max-instances 1 --concurrency 4 --timeout 240 --memory 1Gi --set-env-vars 'COACH_MODE=live,GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=operating-ethos-513011-c0,GOOGLE_CLOUD_LOCATION=global,GEMINI_MODEL=gemini-3.8-flash' --set-secrets COACH_API_TOKEN=financial-coach-api-token:latest
 ```
 
-This command assumes the service account already exists and required deploy/build permissions have been granted. Set COACH_API_TOKEN using a Secret Manager secret. The service intentionally refuses cloud analysis without that token.
+Keep Cloud Run private. Grant `roles/run.invoker` to the invoker service account on the service. For local testing, use:
 
-The default deployment above is IAM-private. For local testing, use `gcloud run services proxy financial-coach-api --project oreos-509708 --region us-central1 --port 8080`. For Vercel integration, keep Cloud Run private and configure workload identity federation. The Next.js server routes exchange the Vercel OIDC assertion with Google STS, mint a Cloud Run ID token through IAM Credentials, and send the app token in a separate server-only header. Grant the mapped Vercel project principal `roles/iam.serviceAccountTokenCreator` on the dedicated invoker service account and `roles/run.invoker` to that service account on the Cloud Run service. Configure `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_RUN_INVOKER_SERVICE_ACCOUNT`, `BACKEND_URL`, and `COACH_API_TOKEN` in Vercel. Keep preview deployment protection enabled while using this prototype token boundary.
+```powershell
+gcloud run services proxy financial-coach-api --project operating-ethos-513011-c0 --region us-central1 --port 8080
+```
 
-## Vercel
-Import `zackseal89/financial-coach`, select Next.js, and leave Root Directory at repository root. Set server-only `BACKEND_URL`, `COACH_API_TOKEN`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, and `GCP_RUN_INVOKER_SERVICE_ACCOUNT`. Never use `NEXT_PUBLIC_` for credentials. Keep preview deployment protection enabled while testing. The analysis route requests a 240-second function limit and the chat route 90 seconds; Vercel documents duration limits by plan and compute configuration, so confirm the project's available maximum before raising these values.
+## Vercel and Workload Identity Federation
 
-For a public demonstration, prefer demo mode until authentication, rate limiting, model evaluation, and billing alerts are implemented. Google Cloud credits do not pay for Vercel.
+Create a Google workload identity pool/provider for issuer `https://oidc.vercel.com/zackseal89s-projects`, mapping `google.subject=assertion.sub`. Restrict its condition to this project's Preview subject:
+
+`owner:zackseal89s-projects:project:financial-coach:environment:preview`
+
+Grant that principal `roles/iam.serviceAccountTokenCreator` on `financial-coach-invoker`. The app's `GCP_WORKLOAD_IDENTITY_PROVIDER` value is the provider resource name, for example:
+
+`//iam.googleapis.com/projects/183522916153/locations/global/workloadIdentityPools/financial-coach/providers/vercel`
+
+The Next.js server routes request the corresponding HTTPS audience from Vercel, exchange the assertion with Google STS, and mint a Cloud Run ID token through IAM Credentials. They send the app token in a separate server-only header.
+
+Set these sensitive server variables in the Vercel **Preview** environment only: `BACKEND_URL`, `COACH_API_TOKEN`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, and `GCP_RUN_INVOKER_SERVICE_ACCOUNT`. Keep Vercel Preview Deployment Protection enabled. The public production site falls back to deterministic KES demo calculations and does not send personal inputs to Vertex AI.
+
+The analysis and chat routes request 240-second and 90-second function limits. Confirm the Vercel plan supports those limits. Google Cloud credits do not pay for Vercel.
+
+## Model
+
+The backend defaults to `gemini-3.8-flash` on the global Vertex AI endpoint. Google's current model documentation lists it as GA and supported in `global`; the older Gemini 2.5 Flash model retired on 2026-10-20.
 
 ## References
-- https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/quickstart
-- https://docs.cloud.google.com/run/docs/ai/build-and-deploy-ai-agents/deploy-adk-agent
-- https://vercel.com/docs/frameworks/full-stack/nextjs
 
+- https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash
+- https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions
+- https://docs.cloud.google.com/run/docs/ai/build-and-deploy-ai-agents/deploy-adk-agent
+- https://vercel.com/docs/oidc/gcp- https://vercel.com/docs/frameworks/full-stack/nextjs

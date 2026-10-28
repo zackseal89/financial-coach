@@ -41,19 +41,19 @@ In a second terminal at the repository root:
 npm run dev
 ```
 
-Open http://127.0.0.1:3001. Enter monthly income, expenses, and optional debts in KES, then select **Build my coaching plan**. Open **Ask your coach** to chat using the current numbers. Demo mode clearly labels that the AI chat needs Vertex AI live mode; it never pretends a demo reply came from a model.
+Open http://127.0.0.1:3001. Enter monthly income, expenses, and optional debts in KES, then select **Build my coaching plan**. Open **Ask your coach** to chat using the current numbers. The public Vercel production site uses honest demo calculations. The protected Vercel Preview environment connects to the live Google ADK backend.
 
 ## Live Vertex AI test
 
-Use your billing-enabled project `oreos-509708`. Credit eligibility depends on your billing account and credit terms; Vercel charges are separate from Google Cloud.
+Use the billing-enabled project `operating-ethos-513011-c0`. Credit eligibility depends on your billing account and credit terms; Vercel charges are separate from Google Cloud. Live Vertex requests are enabled only in a protected Vercel Preview deployment.
 
 ```powershell
 gcloud auth application-default login
-gcloud services enable aiplatform.googleapis.com --project oreos-509708
-gcloud auth application-default set-quota-project oreos-509708
+gcloud services enable aiplatform.googleapis.com --project operating-ethos-513011-c0
+gcloud auth application-default set-quota-project operating-ethos-513011-c0
 ```
 
-In `backend/.env`, set `COACH_MODE=live`, `GOOGLE_CLOUD_PROJECT=oreos-509708`, `GOOGLE_GENAI_USE_VERTEXAI=TRUE`, `GOOGLE_CLOUD_LOCATION=global`, and a Gemini model available to your project using `GEMINI_MODEL`. Restart the backend and test with synthetic numbers. No Google API key is needed with Application Default Credentials. Never commit credentials.
+For a local live test, sign in with `gcloud auth application-default login`, set `COACH_MODE=live`, `GOOGLE_CLOUD_PROJECT=operating-ethos-513011-c0`, `GOOGLE_GENAI_USE_VERTEXAI=TRUE`, `GOOGLE_CLOUD_LOCATION=global`, and `GEMINI_MODEL=gemini-3.8-flash` in `backend/.env`. Restart the backend and use synthetic numbers. No Google API key is needed. Never commit credentials. The Vercel preview deployment steps are in `docs/deployment.md`.
 
 ## Checks
 

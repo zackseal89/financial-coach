@@ -75,7 +75,7 @@ class FinanceAdvisorSystem:
 
         self.budget_analysis_agent = LlmAgent(
             name="BudgetAnalysisAgent",
-            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
             description="Analyzes financial data to categorize spending patterns and recommend budget improvements",
             instruction="""You are a Budget Analysis Agent specialized in reviewing financial transactions and expenses.
 You are the first agent in a sequence of three financial advisor agents.
@@ -109,7 +109,7 @@ IMPORTANT: Store your analysis in state['budget_analysis'] for use by subsequent
 
         self.savings_strategy_agent = LlmAgent(
             name="SavingsStrategyAgent",
-            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
             description="Recommends optimal savings strategies based on income, expenses, and financial goals",
             instruction="""You are a Savings Strategy Agent specialized in creating personalized savings plans.
 You are the second agent in the sequence. Budget analysis from the previous agent: {budget_analysis}
@@ -135,7 +135,7 @@ IMPORTANT: Store your strategy in state['savings_strategy'] for use by the Debt 
 
         self.debt_reduction_agent = LlmAgent(
             name="DebtReductionAgent",
-            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
             description="Creates optimized debt payoff plans to minimize interest paid and time to debt freedom",
             instruction="""You are a Debt Reduction Agent specialized in creating debt payoff strategies.
 You are the final agent in the sequence. Budget analysis: {budget_analysis}\nSavings strategy: {savings_strategy}
@@ -180,7 +180,7 @@ def create_chat_agent():
     """Build the separate conversational coach used by the side-panel chat."""
     return LlmAgent(
         name="FinancialCoachChatAgent",
-        model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
         description="Answers follow-up questions about a Kenyan user's budget and plan",
         instruction="""You are the conversational financial coach for Steady, a personal-finance app for people in Kenya.
 Use clear, practical Kenyan English. When discussing amounts, use Kenyan shillings (KES or KSh).

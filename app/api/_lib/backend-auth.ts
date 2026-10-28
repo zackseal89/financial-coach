@@ -1,4 +1,4 @@
-type GoogleTokenResponse = { access_token?: string; id_token?: string };
+type GoogleTokenResponse = { access_token?: string; token?: string };
 
 async function readTokenResponse(response: Response): Promise<GoogleTokenResponse> {
   if (!response.ok) throw new Error("Cloud Run authentication failed");
@@ -15,13 +15,21 @@ export async function getBackendAuthHeaders(): Promise<Record<string, string>> {
     if (!backendUrl) throw new Error("BACKEND_URL is required for Cloud Run auth");
 
     const { getVercelOidcToken } = await import("@vercel/oidc");
-    const subjectToken = await getVercelOidcToken({ audience: provider });
+    const providerResource = provider.replace(
+      /^https:\/\/iam\.googleapis\.com\//,
+      "//iam.googleapis.com/",
+    );
+    if (!providerResource.startsWith("//iam.googleapis.com/projects/")) {
+      throw new Error("GCP workload identity provider must be a provider resource URI");
+    }
+    const tokenAudience = providerResource.replace(/^\/\//, "https://");
+    const subjectToken = await getVercelOidcToken({ audience: tokenAudience });
     const tokenResponse = await fetch("https://sts.googleapis.com/v1/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         grantType: "urn:ietf:params:oauth:grant-type:token-exchange",
-        audience: provider,
+        audience: providerResource,
         requestedTokenType: "urn:ietf:params:oauth:token-type:access_token",
         scope: "https://www.googleapis.com/auth/cloud-platform",
         subjectTokenType: "urn:ietf:params:oauth:token-type:jwt",
@@ -46,10 +54,10 @@ export async function getBackendAuthHeaders(): Promise<Record<string, string>> {
       },
     );
     const identity = await readTokenResponse(identityResponse);
-    if (!identity.id_token) throw new Error("Cloud Run authentication failed");
+    if (!identity.token) throw new Error("Cloud Run authentication failed");
 
     return {
-      Authorization: `Bearer ${identity.id_token}`,
+      Authorization: `Bearer ${identity.token}`,
       ...(applicationToken ? { "X-Coach-Token": applicationToken } : {}),
     };
   }
