@@ -13,12 +13,15 @@ export async function POST(request: Request) {
       try {
         return Response.json(demoAnalysis(JSON.parse(body)));
       } catch {
-        return Response.json({ detail: "Check your financial inputs." }, { status: 400 });
+        return Response.json(
+          { detail: "Check your financial inputs." },
+          { status: 400 },
+        );
       }
     }
 
     const upstream = await fetch(
-      (process.env.BACKEND_URL || "http://127.0.0.1:8080") + "/analyze",
+      (process.env.BACKEND_URL || "http://127.0.0.1:8080") + "/analyze/stream",
       {
         method: "POST",
         headers: {
@@ -30,7 +33,17 @@ export async function POST(request: Request) {
         cache: "no-store",
       },
     );
-    return Response.json(await upstream.json(), { status: upstream.status });
+    if (!upstream.ok) {
+      return Response.json(await upstream.json(), { status: upstream.status });
+    }
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+      },
+    });
   } catch {
     return Response.json(
       {

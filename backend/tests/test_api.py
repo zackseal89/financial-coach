@@ -19,6 +19,88 @@ class CoachTests(unittest.TestCase):
         self.assertEqual(data["summary"]["remaining"],42000)
         self.assertEqual(data["trace"],[])
         self.assertNotIn("payoff_plans",data["results"]["debt_reduction"])
+    def test_demo_analysis_stream_returns_a_final_result_event(self):
+        response = self.client.post("/analyze/stream", json=self.profile)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/event-stream", response.headers["content-type"])
+        events = [line[6:] for line in response.text.splitlines() if line.startswith("data: ")]
+        self.assertEqual(len(events), 1)
+        event = __import__("json").loads(events[0])
+        self.assertEqual(event["type"], "result")
+        self.assertEqual(event["result"]["summary"]["remaining"], 42000)
+
+    def test_live_analysis_stream_emits_each_agent_transition_in_order(self):
+        import sys
+        from types import ModuleType, SimpleNamespace
+
+        stages = ["BudgetAnalysisAgent", "SavingsStrategyAgent", "DebtReductionAgent"]
+
+        class FakeEvent:
+            def __init__(self, author):
+                self.author = author
+
+            def is_final_response(self):
+                return True
+
+        class FakeSessionService:
+            async def create_session(self, **kwargs):
+                return None
+
+            async def get_session(self, **kwargs):
+                return SimpleNamespace(state={
+                    "budget_analysis": {"ok": "budget"},
+                    "savings_strategy": {"ok": "savings"},
+                    "debt_reduction": {"ok": "debt"},
+                })
+
+            async def delete_session(self, **kwargs):
+                return None
+
+        class FakeSchema:
+            @classmethod
+            def model_validate(cls, value):
+                return SimpleNamespace(model_dump=lambda: value)
+
+        class FakeAgent:
+            def __init__(self, name):
+                self.name = name
+                self.before_agent_callback = None
+
+        class FakeSystem:
+            def __init__(self):
+                self.session_service = FakeSessionService()
+                self.coordinator_agent = SimpleNamespace(
+                    sub_agents=[FakeAgent(stage) for stage in stages]
+                )
+                self.runner = SimpleNamespace(run_async=self.run_async)
+
+            async def run_async(self, **kwargs):
+                for agent in self.coordinator_agent.sub_agents:
+                    await agent.before_agent_callback(None)
+                    yield FakeEvent(agent.name)
+
+        fake_agents = ModuleType("agents")
+        fake_agents.FinanceAdvisorSystem = FakeSystem
+        fake_agents.APP_NAME = "test"
+        fake_agents.BudgetAnalysis = FakeSchema
+        fake_agents.SavingsStrategy = FakeSchema
+        fake_agents.DebtReduction = FakeSchema
+
+        with patch.dict(os.environ, {"COACH_MODE": "live", "COACH_API_TOKEN": "", "K_SERVICE": ""}):
+            with patch.dict(sys.modules, {"agents": fake_agents}):
+                response = self.client.post("/analyze/stream", json=self.profile)
+
+        self.assertEqual(response.status_code, 200)
+        events = [
+            __import__("json").loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        progress = [(event["agent"], event["status"]) for event in events if event["type"] == "progress"]
+        self.assertEqual(progress, [(stage, status) for stage in stages for status in ("working", "done")])
+        self.assertEqual(events[-1]["type"], "result")
+        self.assertEqual(len(events[-1]["result"]["trace"]), 3)
+
     def test_negative_income_rejected(self):
         self.profile["monthly_income"]=-1
         self.assertEqual(self.client.post("/analyze",json=self.profile).status_code,422)

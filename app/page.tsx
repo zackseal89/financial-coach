@@ -25,7 +25,50 @@ const money = (v: number) =>
     currency: "KES",
     maximumFractionDigits: 0,
   }).format(v);
-type ChatMessage = { role: "user" | "assistant"; content: string; mode?: string };
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  mode?: string;
+};
+type AgentStatus = "waiting" | "working" | "done";
+type AgentStep = {
+  agent: string;
+  label: string;
+  status: AgentStatus;
+  elapsed_seconds?: number;
+};
+const agentStages: AgentStep[] = [
+  {
+    agent: "BudgetAnalysisAgent",
+    label: "Understand your spending",
+    status: "waiting",
+  },
+  {
+    agent: "SavingsStrategyAgent",
+    label: "Shape a savings plan",
+    status: "waiting",
+  },
+  {
+    agent: "DebtReductionAgent",
+    label: "Compare debt paths",
+    status: "waiting",
+  },
+];
+function plainText(value: string) {
+  return value
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*([\s\S]*?)\*\*/g, "$1")
+    .replace(/__([\s\S]*?)__/g, "$1")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1 ($2)")
+    .replace(/^\s*[-*+]\s+/gm, "• ")
+    .replace(/^\s*(\d+)[.)]\s+/gm, "$1. ")
+    .replace(/^\s*\|?\s*:?-{3,}:?(?:\s*\|\s*:?-{3,}:?)+\s*\|?\s*$/gm, "")
+    .replace(/^\s*\|\s*/gm, "")
+    .replace(/\s*\|\s*$/gm, "")
+    .replace(/\s*\|\s*/g, " · ")
+    .trim();
+}
 function Detail({ value, label = "" }: { value: unknown; label?: string }) {
   if (value === null || value === undefined) return null;
   if (typeof value === "number") {
@@ -33,7 +76,7 @@ function Detail({ value, label = "" }: { value: unknown; label?: string }) {
     if (/months|dependants/i.test(label)) return <span>{value}</span>;
     return <span>{money(value)}</span>;
   }
-  if (typeof value !== "object") return <span>{String(value)}</span>;
+  if (typeof value !== "object") return <span>{plainText(String(value))}</span>;
   if (Array.isArray(value))
     return (
       <div className="details">
@@ -79,10 +122,12 @@ export default function Home() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState("");
   const [chatMode, setChatMode] = useState("");
+  const [agentProgress, setAgentProgress] = useState<AgentStep[]>(agentStages);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const total = Object.values(expenses).reduce((a, b) => a + b, 0);
+  const spendingRows = Object.entries(expenses).sort((a, b) => b[1] - a[1]);
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [chatMessages, chatBusy]);
@@ -102,7 +147,10 @@ export default function Home() {
   async function sendChat(text = chatText) {
     const question = text.trim();
     if (!question || chatBusy) return;
-    const nextMessages: ChatMessage[] = [...chatMessages, { role: "user", content: question }];
+    const nextMessages: ChatMessage[] = [
+      ...chatMessages,
+      { role: "user", content: question },
+    ];
     setChatMessages(nextMessages);
     setChatText("");
     setChatBusy(true);
@@ -113,17 +161,36 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: question,
-          history: chatMessages.slice(-10).map(({ role, content }) => ({ role, content })),
-          profile: { monthly_income: income, dependants, manual_expenses: expenses, debts },
-          analysis_context: result ? JSON.stringify(result.results).slice(0, 12000) : "",
+          history: chatMessages
+            .slice(-10)
+            .map(({ role, content }) => ({ role, content })),
+          profile: {
+            monthly_income: income,
+            dependants,
+            manual_expenses: expenses,
+            debts,
+          },
+          analysis_context: result
+            ? JSON.stringify(result.results).slice(0, 12000)
+            : "",
         }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "The coach could not reply.");
+      if (!response.ok)
+        throw new Error(
+          typeof data.detail === "string"
+            ? data.detail
+            : "The coach could not reply.",
+        );
       setChatMode(data.mode || "");
-      setChatMessages([...nextMessages, { role: "assistant", content: data.reply, mode: data.mode }]);
+      setChatMessages([
+        ...nextMessages,
+        { role: "assistant", content: data.reply, mode: data.mode },
+      ]);
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : "The coach could not reply.");
+      setChatError(
+        error instanceof Error ? error.message : "The coach could not reply.",
+      );
     } finally {
       setChatBusy(false);
     }
@@ -133,10 +200,16 @@ export default function Home() {
     setBusy(true);
     setError("");
     setResult(null);
+    setAgentProgress(
+      agentStages.map((step) => ({ ...step, status: "waiting" })),
+    );
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
         body: JSON.stringify({
           monthly_income: income,
           dependants,
@@ -144,14 +217,65 @@ export default function Home() {
           debts,
         }),
       });
-      const data = await response.json();
-      if (!response.ok)
+      if (!response.ok) {
+        const failure = await response.json();
         throw new Error(
-          typeof data.detail === "string"
-            ? data.detail
+          typeof failure.detail === "string"
+            ? failure.detail
             : "Check your financial inputs.",
         );
-      setResult(data);
+      }
+      let finalResult: Result | null = null;
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("text/event-stream") && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamError = "";
+        const consume = (record: string) => {
+          const dataLine = record
+            .split(/\r?\n/)
+            .find((line) => line.startsWith("data:"));
+          if (!dataLine) return;
+          const event = JSON.parse(dataLine.slice(5).trim());
+          if (event.type === "progress") {
+            setAgentProgress((current) =>
+              current.map((step) =>
+                step.agent === event.agent
+                  ? {
+                      ...step,
+                      status: event.status === "done" ? "done" : "working",
+                      elapsed_seconds: event.elapsed_seconds,
+                    }
+                  : step,
+              ),
+            );
+          } else if (event.type === "result") {
+            finalResult = event.result as Result;
+          } else if (event.type === "error") {
+            streamError = event.detail || "Analysis failed.";
+          }
+        };
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          const records = buffer.split(/\r?\n\r?\n/);
+          buffer = records.pop() || "";
+          records.forEach(consume);
+          if (done) {
+            if (buffer.trim()) consume(buffer);
+            break;
+          }
+        }
+        if (streamError) throw new Error(streamError);
+      } else {
+        finalResult = (await response.json()) as Result;
+      }
+      if (!finalResult)
+        throw new Error(
+          "The coach finished without returning a plan. Please retry.",
+        );
+      setResult(finalResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis failed");
     } finally {
@@ -168,13 +292,20 @@ export default function Home() {
         <a className="nav active" href="#overview">
           ◫ &nbsp; Overview
         </a>
+        <a className="nav" href="#spending">
+          ◩ &nbsp; Spending map
+        </a>
         <a className="nav" href="#profile">
           ↗ &nbsp; Your finances
         </a>
         <a className="nav" href="#analysis">
           ◎ &nbsp; Coaching plan
         </a>
-        <button className="nav chat-nav" onClick={() => setChatOpen(true)} aria-expanded={chatOpen}>
+        <button
+          className="nav chat-nav"
+          onClick={() => setChatOpen(true)}
+          aria-expanded={chatOpen}
+        >
           ✳ &nbsp; Ask your coach
         </button>
         <div className="aside-bottom">
@@ -187,7 +318,11 @@ export default function Home() {
           <span>YOUR MONEY, IN PERSPECTIVE</span>
           <div className="header-actions">
             <span className="pill">◌ Kenya · Personal workspace</span>
-            <button className="chat-trigger" onClick={() => setChatOpen(true)} aria-expanded={chatOpen}>
+            <button
+              className="chat-trigger"
+              onClick={() => setChatOpen(true)}
+              aria-expanded={chatOpen}
+            >
               ✳ <span>Ask your coach</span>
             </button>
           </div>
@@ -247,6 +382,53 @@ export default function Home() {
             </small>
           </article>
         </div>
+        <section
+          id="spending"
+          className="spending-map"
+          aria-labelledby="spending-title"
+        >
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">A MONTH AT A GLANCE</p>
+              <h2 id="spending-title">Your spending map</h2>
+            </div>
+            <span className="subtle">{money(total)} total</span>
+          </div>
+          <div className="spending-list">
+            {spendingRows.map(([name, amount], index) => {
+              const share = total > 0 ? (amount / total) * 100 : 0;
+              return (
+                <div className="spending-row" key={name}>
+                  <span
+                    className={"category c" + (index % 5)}
+                    aria-hidden="true"
+                  >
+                    {["⌂", "◡", "↗", "ϟ", "✧"][index % 5]}
+                  </span>
+                  <div className="spending-copy">
+                    <div className="spending-label">
+                      <strong>{name}</strong>
+                      <span>{Math.round(share)}%</span>
+                    </div>
+                    <div
+                      className="spending-track"
+                      aria-label={
+                        name + ": " + Math.round(share) + "% of listed spending"
+                      }
+                    >
+                      <span style={{ width: share + "%" }} />
+                    </div>
+                  </div>
+                  <strong className="spending-amount">{money(amount)}</strong>
+                </div>
+              );
+            })}
+          </div>
+          <p className="spending-footnote">
+            Category shares are based on the figures you entered. Adjust them
+            below to explore another month.
+          </p>
+        </section>
         <div className="columns">
           <form id="profile" onSubmit={analyze}>
             <div className="section-heading">
@@ -389,8 +571,8 @@ export default function Home() {
             </button>
             <p className="privacy">
               Live mode sends these inputs to Google Vertex AI. This prototype
-              does not save your financial profile. Sample figures are synthetic;
-              edit them to match your month.
+              does not save your financial profile. Sample figures are
+              synthetic; edit them to match your month.
             </p>
             {error && (
               <p role="alert" className="error">
@@ -461,15 +643,41 @@ export default function Home() {
               <span className="pill">
                 {result.mode === "demo"
                   ? "Demo · no AI calls"
-                        : "Live · Google ADK"}
+                  : "Live · Google ADK"}
               </span>
             )}
           </div>
           {busy ? (
-            <p>
-              Reviewing your budget, savings, and debts. This can take a few
-              minutes.
-            </p>
+            <div className="agent-progress" role="status" aria-live="polite">
+              <p className="progress-intro">
+                Your plan is taking shape, one specialist at a time.
+              </p>
+              {agentProgress.map((step, index) => (
+                <div
+                  className={"agent-progress-step " + step.status}
+                  key={step.agent}
+                >
+                  <span className="progress-marker">
+                    {step.status === "done"
+                      ? "✓"
+                      : String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <strong>{step.label}</strong>
+                    <small>
+                      {step.status === "done"
+                        ? "Complete"
+                        : step.status === "working"
+                          ? "Working on your numbers…"
+                          : "Next in the sequence"}
+                      {step.elapsed_seconds
+                        ? " · " + step.elapsed_seconds + "s"
+                        : ""}
+                    </small>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : result ? (
             <>
               <div className="tabs" role="tablist">
@@ -514,53 +722,168 @@ export default function Home() {
       </main>
       {chatOpen && (
         <>
-          <button className="chat-backdrop" aria-label="Close money coach chat" onClick={() => setChatOpen(false)} />
-          <section className="chat-panel" role="dialog" aria-modal="true" aria-labelledby="chat-title" onKeyDown={(event) => {
-            if (event.key !== "Tab") return;
-            const focusable = event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), textarea, input, [tabindex]:not([tabindex='-1'])");
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-          }}>
+          <button
+            className="chat-backdrop"
+            aria-label="Close money coach chat"
+            onClick={() => setChatOpen(false)}
+          />
+          <section
+            className="chat-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chat-title"
+            onKeyDown={(event) => {
+              if (event.key !== "Tab") return;
+              const focusable =
+                event.currentTarget.querySelectorAll<HTMLElement>(
+                  "button:not(:disabled), textarea, input, [tabindex]:not([tabindex='-1'])",
+                );
+              const first = focusable[0];
+              const last = focusable[focusable.length - 1];
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last?.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first?.focus();
+              }
+            }}
+          >
             <div className="chat-header">
-              <div className="chat-avatar" aria-hidden="true">✳</div>
+              <div className="chat-avatar" aria-hidden="true">
+                ✳
+              </div>
               <div>
                 <h2 id="chat-title">Your money coach</h2>
-                <p>{chatMode === "live" ? "Google ADK · Vertex AI" : chatMode === "demo" ? "Demo mode · AI not connected" : "Kenya · KES"}</p>
+                <p>
+                  {chatMode === "live"
+                    ? "Google ADK · Vertex AI"
+                    : chatMode === "demo"
+                      ? "Demo mode · AI not connected"
+                      : "Kenya · KES"}
+                </p>
               </div>
-              <button className="chat-close" onClick={() => setChatOpen(false)} aria-label="Close chat">×</button>
+              <button
+                className="chat-close"
+                onClick={() => setChatOpen(false)}
+                aria-label="Close chat"
+              >
+                ×
+              </button>
             </div>
-            <div className="chat-transcript" aria-live="polite" aria-relevant="additions text">
+            <div
+              className="chat-transcript"
+              aria-live="polite"
+              aria-relevant="additions text"
+            >
               {chatMessages.length === 0 && (
                 <div className="chat-welcome">
                   <span className="eyebrow">A CLEARER NEXT STEP</span>
-                  <p>Ask about your budget, savings, or a debt strategy. Your current KES figures are included for context.</p>
-                  <button onClick={() => void sendChat("How much room do I have after my monthly expenses?")}>How much is left after expenses? <span>↗</span></button>
-                  <button onClick={() => void sendChat("How could I make a plan for my debt repayments?")}>Help me plan debt repayments <span>↗</span></button>
+                  <p>
+                    Ask about your budget, savings, or a debt strategy. Your
+                    current KES figures are included for context.
+                  </p>
+                  <button
+                    onClick={() =>
+                      void sendChat(
+                        "How much room do I have after my monthly expenses?",
+                      )
+                    }
+                  >
+                    How much is left after expenses? <span>↗</span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      void sendChat(
+                        "How could I make a plan for my debt repayments?",
+                      )
+                    }
+                  >
+                    Help me plan debt repayments <span>↗</span>
+                  </button>
                 </div>
               )}
               {chatMessages.map((message, index) => (
-                <div className={`chat-message ${message.role}`} key={`${index}-${message.role}`}>
-                  <span>{message.role === "assistant" ? "Coach" : "You"}{message.mode === "demo" ? " · Demo" : ""}</span>
-                  <p>{message.content}</p>
+                <div
+                  className={`chat-message ${message.role}`}
+                  key={`${index}-${message.role}`}
+                >
+                  <span>
+                    {message.role === "assistant" ? "Coach" : "You"}
+                    {message.mode === "demo" ? " · Demo" : ""}
+                  </span>
+                  <p>{plainText(message.content)}</p>
                 </div>
               ))}
-              {chatBusy && <p className="chat-thinking" role="status">Your coach is thinking…</p>}
-              {chatError && <p className="error" role="alert">{chatError}</p>}
+              {chatBusy && (
+                <p className="chat-thinking" role="status">
+                  Your coach is thinking…
+                </p>
+              )}
+              {chatError && (
+                <p className="error" role="alert">
+                  {chatError}
+                </p>
+              )}
               <div ref={chatEndRef} />
             </div>
-            <form className="chat-compose" onSubmit={(event) => { event.preventDefault(); void sendChat(); }}>
-              <label className="sr-only" htmlFor="chat-input">Message your money coach</label>
-              <textarea ref={chatInputRef} id="chat-input" rows={2} maxLength={1200} placeholder="Ask about your monthly plan…" value={chatText} onChange={(event) => setChatText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendChat(); } }} />
-              <button disabled={!chatText.trim() || chatBusy} aria-label="Send message">↑</button>
-              <small>Never share PINs or account numbers. Guidance is educational.</small>
+            <form
+              className="chat-compose"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void sendChat();
+              }}
+            >
+              <label className="sr-only" htmlFor="chat-input">
+                Message your money coach
+              </label>
+              <textarea
+                ref={chatInputRef}
+                id="chat-input"
+                rows={2}
+                maxLength={1200}
+                placeholder="Ask about your monthly plan…"
+                value={chatText}
+                onChange={(event) => setChatText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendChat();
+                  }
+                }}
+              />
+              <button
+                disabled={!chatText.trim() || chatBusy}
+                aria-label="Send message"
+              >
+                ↑
+              </button>
+              <small>
+                Never share PINs or account numbers. Guidance is educational.
+              </small>
             </form>
           </section>
         </>
       )}
-      <button className="chat-fab" onClick={() => setChatOpen(true)} aria-expanded={chatOpen} aria-label="Open money coach chat">✳ <span>Ask your coach</span></button>
+      <nav className="mobile-nav" aria-label="Primary navigation">
+        <a href="#overview">
+          <span>◫</span>Home
+        </a>
+        <a href="#spending">
+          <span>◩</span>Spending
+        </a>
+        <a href="#analysis">
+          <span>◎</span>Your plan
+        </a>
+      </nav>
+      <button
+        className="chat-fab"
+        onClick={() => setChatOpen(true)}
+        aria-expanded={chatOpen}
+        aria-label="Open money coach chat"
+      >
+        ✳ <span>Ask your coach</span>
+      </button>
     </div>
   );
 }
-
