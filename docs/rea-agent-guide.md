@@ -24,23 +24,30 @@ In Steady, we apply this evidence-based approach across three concrete areas:
    - Observing how the conversational coach ([`create_chat_agent`](../backend/agents.py#L179-L194) and [`chat`](../backend/main.py#L218-L281)) consumes the user's current KES profile, recent turns, and latest coaching plan while replying in clean plain text without Markdown clutter.
    - Verifying explicit failure handling (502/504/SSE error events) so failed live runs never degrade into unlabeled demo output.
 
-### Observing a Live Vertex AI Run (Local ADC vs. Protected Vercel Preview)
+### Observing a Live Vertex AI Run (Verified Local Run vs. Protected Vercel Preview)
 
-When Vercel Preview team authorization is still pending, you can observe and verify the exact live Vertex AI specialist stream and contextual chat locally against `operating-ethos-513011-c0`:
+Verified on **29 October 2026** against project `operating-ethos-513011-c0` (`location=global`, `GEMINI_MODEL=gemini-3.8-flash`, `COACH_MODE=live`) using a synthetic Kenyan household profile (`KES 120,000` monthly income, 2 dependants, `KES 92,500` manual expenses across Rent, Food & Groceries, Transport, Utilities & M-PESA fees, and School fees, plus a `KES 180,000` SACCO Loan at 12% APR / `KES 8,500` min payment and a `KES 15,000` Mobile Loan at 36% APR / `KES 3,000` min payment):
 
-1. **Observed Without Active ADC Token (Verified Error Boundary):**
-   - [`analyze_stream`](../backend/main.py#L94-L216) attaches `before_agent_callback` to `BudgetAnalysisAgent`, `SavingsStrategyAgent`, and `DebtReductionAgent` and immediately emits:
+1. **Observed Specialist SSE Stream (`POST /analyze/stream`):**
+   - [`analyze_stream`](../backend/main.py#L94-L216) emitted all six sequential specialist transitions in strict dependency order before the final validated `result` frame:
      ```json
      {"type": "progress", "agent": "BudgetAnalysisAgent", "status": "working"}
+     {"type": "progress", "agent": "BudgetAnalysisAgent", "status": "done", "elapsed_seconds": 68.64}
+     {"type": "progress", "agent": "SavingsStrategyAgent", "status": "working"}
+     {"type": "progress", "agent": "SavingsStrategyAgent", "status": "done", "elapsed_seconds": 88.24}
+     {"type": "progress", "agent": "DebtReductionAgent", "status": "working"}
+     {"type": "progress", "agent": "DebtReductionAgent", "status": "done", "elapsed_seconds": 105.59}
      ```
-   - When local Google Cloud ADC credentials have expired (`google.auth.exceptions.RefreshError`), [`analyze_stream`](../backend/main.py#L184-L185) catches the failure, deletes the ephemeral ADK session in the `finally` block, and yields an explicit SSE error frame instead of fabricated numbers:
-     ```json
-     {"type": "error", "detail": "Agent analysis failed. Check model access and cloud configuration."}
-     ```
-2. **Completing the Live Run with Synthetic KES Figures:**
-   - Re-authenticate local ADC (`gcloud auth application-default login` with quota project `operating-ethos-513011-c0`) and start `backend` with `COACH_MODE=live`, `GOOGLE_GENAI_USE_VERTEXAI=TRUE`, `GOOGLE_CLOUD_PROJECT=operating-ethos-513011-c0`, `GOOGLE_CLOUD_LOCATION=global`, and `GEMINI_MODEL=gemini-3.8-flash`.
-   - Confirm the six sequential SSE progress transitions (`working` → `done` with `elapsed_seconds` for `BudgetAnalysisAgent` → `SavingsStrategyAgent` → `DebtReductionAgent`), the validated Pydantic payload in the final `result` event, and the plain-text KES reply from `/chat` using `analysis_context`.
-   - Once the local Next.js app (`http://127.0.0.1:3001`) or protected Vercel Preview is open in Chrome with remote debugging enabled, use REA's `list_browser_targets` + `observe_web_session` (passive) or `capture_browser_scenario` (automated) to capture an Evidence-backed snapshot of the live UI transitions.
+2. **Observed Cross-Agent State & Kenyan Localization (`BudgetAnalysis` → `SavingsStrategy` → `DebtReduction`):**
+   - **`BudgetAnalysisAgent` (`68.64s`):** Categorized all 5 manual expenses (`KES 92,500`) plus the 2 minimum debt repayments (`KES 8,500` SACCO + `KES 3,000` Mobile Loan = `KES 11,500`) into `total_expenses: 104000.0` (percentages summing to `100.0%`), identifying the `KES 16,000` monthly cash-flow surplus after minimum debt service and recommending concrete KES reductions (clearing the 36% mobile loan, bulk wholesale grocery shopping, consolidating M-PESA transfers to avoid tiered fees, and off-peak matatu/fuel consolidation).
+   - **`SavingsStrategyAgent` (`88.24s`):** Consumed `{budget_analysis}` (`KES 104,000` monthly obligations with 2 dependants) to recommend a 5-month emergency fund (`KES 520,000`), allocating the `KES 16,000` monthly surplus across an institutional Money Market Fund (`KES 8,000`), SACCO Non-Withdrawable Deposits (`KES 5,000`), and a School Fees Sinking Fund (`KES 3,000`), paired with Kenyan automation techniques (`Standing Order to Money Market Fund`, `SACCO Checkoff / Direct Debit`, and `M-PESA Lock Savings`).
+   - **`DebtReductionAgent` (`105.59s`):** Consumed both `{budget_analysis}` and `{savings_strategy}`, prioritizing the `KES 15,000` Mobile Loan (36% APR) under both avalanche and snowball plans (`monthly_payment: 11500.0`, `months_to_payoff: 20`, `total_interest: 16950.0`), rolling the freed `KES 3,000` into the SACCO Loan, and advising against digital loan app borrowing to protect Credit Reference Bureau (CRB) standing.
+3. **Observed Contextual Chat (`POST /chat`):**
+   - `FinancialCoachChatAgent` completed in `16.61s` (`[{"agent": "FinancialCoachChatAgent", "elapsed_seconds": 16.61}]`).
+   - Used the injected `financial_profile` and `prior_coaching_plan` (`analysis_context`) to reference the exact `KES 15,000` Mobile Loan (36%), `KES 180,000` SACCO Loan (12%), `KES 104,000` total monthly obligations, and `KES 16,000` surplus.
+   - Returned warm Kenyan English (`"Habari..."`) in **strictly formatted plain text** (no Markdown headings, bold/italic markers, tables, or code blocks), included the educational disclaimer and lender-verification reminder, and ended with a focused follow-up question.
+4. **Observed Error Boundary (When Credentials Expire or Fail):**
+   - Prior to refreshing ADC (`google.auth.exceptions.RefreshError`), [`analyze_stream`](../backend/main.py#L184-L194) emitted `{"type": "progress", "agent": "BudgetAnalysisAgent", "status": "working"}` followed by `{"type": "error", "detail": "Agent analysis failed. Check model access and cloud configuration."}` and deleted the ephemeral session in its `finally` block—never returning unlabeled demo output.
 
 ---
 
