@@ -282,11 +282,9 @@ function Detail({ value, label = "" }: { value: unknown; label?: string }) {
 function PlanRenderer({
   tabKey,
   data,
-  mode,
 }: {
   tabKey: string;
   data: unknown;
-  mode: string;
 }) {
   if (!isRecord(data)) {
     return <Detail value={data} label={tabKey} />;
@@ -332,10 +330,8 @@ function PlanRenderer({
     return (
       <div className="plan-view">
         {note && (
-          <div className={`mode-banner ${mode === "demo" ? "demo" : "live"}`}>
-            <div className="mode-banner-badge">
-              {mode === "demo" ? "DEMO ARITHMETIC" : "SPECIALIST NOTE"}
-            </div>
+          <div className="mode-banner live">
+            <div className="mode-banner-badge">SPECIALIST NOTE</div>
             <p>{note}</p>
           </div>
         )}
@@ -450,10 +446,6 @@ function PlanRenderer({
     const emergencyFund = isRecord(data.emergency_fund)
       ? data.emergency_fund
       : null;
-    const illustrativeFund =
-      typeof data.illustrative_emergency_fund === "number"
-        ? data.illustrative_emergency_fund
-        : null;
     const recommendations = Array.isArray(data.recommendations)
       ? data.recommendations.filter(isRecord)
       : [];
@@ -464,7 +456,6 @@ function PlanRenderer({
     const knownKeys = new Set([
       "note",
       "emergency_fund",
-      "illustrative_emergency_fund",
       "recommendations",
       "automation_techniques",
     ]);
@@ -475,23 +466,21 @@ function PlanRenderer({
     return (
       <div className="plan-view">
         {note && (
-          <div className={`mode-banner ${mode === "demo" ? "demo" : "live"}`}>
-            <div className="mode-banner-badge">
-              {mode === "demo" ? "DEMO ILLUSTRATION" : "SAVINGS NOTE"}
-            </div>
+          <div className="mode-banner live">
+            <div className="mode-banner-badge">SAVINGS NOTE</div>
             <p>{note}</p>
           </div>
         )}
 
-        {(emergencyFund || illustrativeFund !== null) && (
+        {emergencyFund && (
           <div className="emergency-hero">
             <div className="emergency-hero-copy">
               <span className="eyebrow">SAFETY BUFFER TARGET</span>
               <h3>Emergency reserve runway</h3>
               <p>
-                {emergencyFund && typeof emergencyFund.current_status === "string"
+                {typeof emergencyFund.current_status === "string"
                   ? plainText(emergencyFund.current_status)
-                  : "Calculated as 6× your current monthly expenses to protect your household against income shocks."}
+                  : "Recommended reserve sized by the Savings Strategy specialist based on your monthly obligations and household dependants."}
               </p>
             </div>
             <div className="emergency-hero-figures">
@@ -499,22 +488,20 @@ function PlanRenderer({
                 <span>Target buffer</span>
                 <strong>
                   {money(
-                    emergencyFund &&
-                      typeof emergencyFund.recommended_amount === "number"
+                    typeof emergencyFund.recommended_amount === "number"
                       ? emergencyFund.recommended_amount
-                      : illustrativeFund ?? 0,
+                      : 0,
                   )}
                 </strong>
-                <small>6 months of core expenses</small>
+                <small>Recommended emergency reserve</small>
               </div>
-              {emergencyFund &&
-                typeof emergencyFund.current_amount === "number" && (
-                  <div>
-                    <span>Current reserve</span>
-                    <strong>{money(emergencyFund.current_amount)}</strong>
-                    <small>Reported starting balance</small>
-                  </div>
-                )}
+              {typeof emergencyFund.current_amount === "number" && (
+                <div>
+                  <span>Current reserve</span>
+                  <strong>{money(emergencyFund.current_amount)}</strong>
+                  <small>Reported starting balance</small>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -607,10 +594,8 @@ function PlanRenderer({
     return (
       <div className="plan-view">
         {note && (
-          <div className={`mode-banner ${mode === "demo" ? "demo" : "live"}`}>
-            <div className="mode-banner-badge">
-              {mode === "demo" ? "DEMO DISCLOSURE" : "DEBT STRATEGY"}
-            </div>
+          <div className="mode-banner live">
+            <div className="mode-banner-badge">DEBT STRATEGY</div>
             <p>{note}</p>
           </div>
         )}
@@ -1150,11 +1135,9 @@ export default function Home() {
           <div className="header-actions">
             <span className="pill">
               <span className="status-indicator" aria-hidden="true" />
-              {result?.mode === "live"
+              {result
                 ? "Live · Google ADK"
-                : result?.mode === "demo"
-                  ? "Demo mode · Local math"
-                  : "Kenya · Personal workspace"}
+                : "Kenya · Personal workspace"}
             </span>
             <button
               type="button"
@@ -1664,9 +1647,10 @@ export default function Home() {
             </button>
 
             <p className="privacy">
-              Live mode sends these inputs to Google Vertex AI. This prototype
-              does not save your financial profile. Sample figures are
-              synthetic; edit them to match your month.
+              Sends these inputs to Google Vertex AI via the Google ADK
+              multi-agent backend. This workspace does not save your financial
+              profile. Sample figures are synthetic; edit them to match your
+              month.
             </p>
             {error && (
               <p role="alert" className="error">
@@ -1719,11 +1703,11 @@ export default function Home() {
                 </svg>
               </div>
               <div>
-                <h3>Honest numbers, zero silent fallbacks.</h3>
+                <h3>Isolated sessions, validated schemas.</h3>
                 <p>
-                  Demo mode performs transparent local arithmetic without calling
-                  a paid model. Live mode streams real-time Google ADK agent
-                  transitions from Vertex AI.
+                  Every coaching run executes in an ephemeral Google ADK session
+                  on Vertex AI, streaming real-time specialist transitions and
+                  validating structured outputs before rendering.
                 </p>
               </div>
             </article>
@@ -1755,15 +1739,9 @@ export default function Home() {
               <h2>Your coaching plan</h2>
             </div>
             {result && (
-              <span
-                className={`pill ${
-                  result.mode === "demo" ? "demo-pill" : "live-pill"
-                }`}
-              >
+              <span className="pill live-pill">
                 <span className="status-indicator" aria-hidden="true" />
-                {result.mode === "demo"
-                  ? "Demo · no AI calls"
-                  : "Live · Google ADK"}
+                Live · Google ADK
               </span>
             )}
           </div>
@@ -1831,7 +1809,6 @@ export default function Home() {
               <PlanRenderer
                 tabKey={tab}
                 data={result.results[tab]}
-                mode={result.mode}
               />
 
               {result.trace.length > 0 && (
@@ -1918,9 +1895,7 @@ export default function Home() {
                 <p>
                   {chatMode === "live"
                     ? "Google ADK · Vertex AI"
-                    : chatMode === "demo"
-                      ? "Demo mode · AI not connected"
-                      : "Kenya · KES context attached"}
+                    : "Kenya · KES context attached"}
                 </p>
               </div>
               <button
@@ -1997,7 +1972,6 @@ export default function Home() {
                 >
                   <span>
                     {message.role === "assistant" ? "Coach" : "You"}
-                    {message.mode === "demo" ? " · Demo" : ""}
                   </span>
                   <p>{plainText(message.content)}</p>
                 </div>
