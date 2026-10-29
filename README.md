@@ -20,7 +20,7 @@ flowchart LR
   ADKCHAT --> V
 ```
 
-The original three agent roles, prompts, and Pydantic output schemas are retained in `backend/agents.py`. A separate Google ADK chat agent powers the contextual side panel. This adaptation replaces Streamlit with React, introduces validated HTTP boundaries, upgrades ADK with locked dependencies, awaits session APIs, uses unique request sessions, explicitly injects prior agent outputs, and validates final structured results. It removes silent fabricated fallback forecasts. See [architecture decisions](docs/architecture.md).
+The original three agent roles, prompts, and Pydantic output schemas are retained in `backend/agents.py`. A separate Google ADK chat agent powers the contextual side panel. This adaptation replaces Streamlit with React, introduces validated HTTP boundaries, upgrades ADK with locked dependencies, awaits session APIs, uses unique request sessions, explicitly injects prior agent outputs, and validates final structured results. It removes silent fabricated fallback forecasts. See [architecture decisions](docs/architecture.md) and the [UI research note](docs/ui-research.md).
 
 ## Local setup
 
@@ -40,6 +40,8 @@ In a second terminal at the repository root:
 ```powershell
 npm run dev
 ```
+
+For a token-protected local backend, set the same `COACH_API_TOKEN` in the root `.env.local` and `backend/.env`, then restart both services.
 
 Open http://127.0.0.1:3001. Enter monthly income, expenses, and optional debts in KES, then select **Build my coaching plan**. Open **Ask your coach** to chat using the current numbers. The public Vercel production site uses honest demo calculations. The protected Vercel Preview environment connects to the live Google ADK backend.
 
@@ -74,7 +76,7 @@ See [deployment guide](docs/deployment.md) for Vercel and Cloud Run setup. The i
 
 Implemented: Kenya-localized KES dashboard, responsive chat drawer, debt entry, three result panels, sequential ADK orchestration plus a separate contextual chat agent, session isolation, server-side cloud configuration, request validation, explicit failures, execution timing, locked dependencies, CI, and deployment documentation.
 
-Still to build: CSV import in the new UI, persistent authenticated user accounts, durable runs, streaming progress, model-quality evaluation fixtures, deterministic debt amortization, and production rate limits. This is not a production financial advisory system. AI-generated payoff figures require independent verification.
+Still to build: CSV import in the new UI, persistent authenticated user accounts, durable runs, model-quality evaluation fixtures, deterministic debt amortization, and production rate limits. Live coaching analysis streams real ADK agent transitions to the dashboard; demo mode returns clearly labeled calculations without model calls. This is not a production financial advisory system. AI-generated payoff figures require independent verification.
 
 Live mode sends financial inputs to Google. The application does not persist profiles; provider/platform logging and retention policies still apply. Use synthetic data for initial testing.
 
